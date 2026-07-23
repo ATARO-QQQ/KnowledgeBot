@@ -1,0 +1,20 @@
+body {
+            font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Meiryo", sans-serif;
+            background-color: #FFFFFF;
+            color: #111111;
+        }
+
+        
+        * {
+            border-radius: 0 !important;
+        }
+
+        
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #F4F4F5; }
+        ::-webkit-scrollbar-thumb { background: #A1A1AA; }
+        ::-webkit-scrollbar-thumb:hover { background: #71717A; }
+        
+        .message-content { white-space: pre-wrap; word-break: break-word; }
+        .message-content ul { list-style-type: square; padding-left: 1.25rem; margin-top: 0.5rem; margin-bottom: 0.5rem; }
+        .message-content strong { font-weight: 700; color: #000000; border-bottom: 1px solid #000000; }
