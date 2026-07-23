@@ -56,7 +56,23 @@
                     </button>
                 </div>
 
+                <div class="p-4 border-b-2 border-black">
+                    
+                    <button id="new-chat-btn" class="w-full bg-black hover:bg-gray-800 text-white font-bold py-2.5 px-4 text-xs uppercase tracking-wider transition border border-black flex items-center justify-center gap-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                        <i class="fas fa-plus"></i> 新しいチャットを開始
+                    </button>
+                </div>
+
                 <div class="p-5 flex-1 overflow-y-auto space-y-6">
+                    
+                    <div>
+                        <h3 class="text-xs font-bold text-black uppercase tracking-widest border-b border-black pb-1 mb-3">チャット履歴</h3>
+                        <ul id="thread-list" class="space-y-2">
+                            <li class="text-xs text-gray-400 text-center py-2" id="no-threads-msg">履歴がありません</li>
+                        </ul>
+                    </div>
+
+                    
                     <div>
                         <h3 class="text-xs font-bold text-black uppercase tracking-widest border-b border-black pb-1 mb-3">テキストデータを追加</h3>
                         <label class="cursor-pointer bg-white hover:bg-black hover:text-white text-black border border-black flex items-center justify-center gap-2 py-2.5 px-4 transition text-xs font-bold uppercase tracking-wider shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
@@ -66,10 +82,10 @@
                         <p class="text-[10px] text-gray-500 mt-2 uppercase tracking-tight">対応形式: .txt, .md, .json, .html</p>
                     </div>
 
+                    
                     <div>
                         <h3 class="text-xs font-bold text-black uppercase tracking-widest border-b border-black pb-1 mb-3">読み込み済みデータ</h3>
                         <ul id="document-list" class="space-y-2">
-                            
                             <li class="text-xs text-gray-400 text-center py-4 border border-dashed border-gray-300" id="no-docs-msg">データがありません</li>
                         </ul>
                     </div>
@@ -91,7 +107,7 @@
                             AI
                         </div>
                         <div class="bg-gray-50 border border-black px-4 py-3 max-w-[85%] text-xs md:text-sm text-gray-900 leading-relaxed shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                            <p>こんにちは。サイドバーからテキストデータ（.txt, .md, .json, .html）をアップロードしてください。<br>アップロードされたデータと検索情報を組み合わせ、独自のアルゴリズムで応答します。</p>
+                            <p>こんにちは。サイドバーからテキストデータ（.txt, .md, .json, .html）をアップロードしてください。<br>長文の質問にも対応し、アップロードされたデータと検索情報を組み合わせて独自のアルゴリズムで自動応答します。</p>
                         </div>
                     </div>
                 </div>
@@ -105,7 +121,7 @@
                 
                 <div class="p-4 bg-white border-t-2 border-black">
                     <form id="chat-form" class="max-w-4xl mx-auto relative flex items-center">
-                        <input type="text" id="chat-input" required class="w-full bg-white border border-black pl-4 pr-12 py-3 focus:outline-none text-sm text-black placeholder-gray-400 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" placeholder="質問を入力してください...">
+                        <textarea id="chat-input" required rows="1" class="w-full bg-white border border-black pl-4 pr-12 py-3 focus:outline-none text-sm text-black placeholder-gray-400 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] resize-none" placeholder="質問を入力してください（長文対応）..."></textarea>
                         <button type="submit" class="absolute right-1 w-9 h-9 bg-black hover:bg-gray-800 text-white flex items-center justify-center transition disabled:opacity-50 disabled:cursor-not-allowed">
                             <i class="fas fa-arrow-right text-xs"></i>
                         </button>
