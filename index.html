@@ -95,8 +95,13 @@
             
             <div class="flex-1 flex flex-col h-full bg-white relative">
                 
-                <div class="md:hidden p-4 bg-white border-b-2 border-black flex justify-between items-center">
-                    <h2 class="font-bold text-sm tracking-wider uppercase">Chat</h2>
+                <div class="p-4 bg-white border-b-2 border-black flex justify-between items-center shadow-sm z-10 shrink-0">
+                    <h2 id="current-chat-title" class="font-bold text-sm tracking-wider uppercase truncate max-w-[60%] flex items-center gap-2">
+                        <i class="fas fa-comment-alt text-gray-400"></i> <span>新しいチャット</span>
+                    </h2>
+                    <button id="delete-current-chat-btn" class="text-xs border border-red-600 text-red-600 hover:bg-red-600 hover:text-white px-3 py-1.5 transition flex items-center gap-1 shadow-[2px_2px_0px_0px_rgba(220,38,38,1)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px]" title="現在のチャットを完全に削除">
+                        <i class="fas fa-trash-alt"></i> クリア
+                    </button>
                 </div>
 
                 
@@ -107,7 +112,7 @@
                             AI
                         </div>
                         <div class="bg-gray-50 border border-black px-4 py-3 max-w-[85%] text-xs md:text-sm text-gray-900 leading-relaxed shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                            <p>こんにちは。サイドバーからテキストデータ（.txt, .md, .json, .html）をアップロードしてください。<br>長文の質問にも対応し、アップロードされたデータと検索情報を組み合わせて独自のアルゴリズムで自動応答します。</p>
+                            <p>こんにちは。サイドバーからテキストデータ（.txt, .md, .json, .html）をアップロードしてください。<br>質問に対してアップロードデータや一般知識を自然な文章にまとめてお答えします。</p>
                         </div>
                     </div>
                 </div>
@@ -121,7 +126,7 @@
                 
                 <div class="p-4 bg-white border-t-2 border-black">
                     <form id="chat-form" class="max-w-4xl mx-auto relative flex items-center">
-                        <textarea id="chat-input" required rows="1" class="w-full bg-white border border-black pl-4 pr-12 py-3 focus:outline-none text-sm text-black placeholder-gray-400 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] resize-none" placeholder="質問を入力してください（長文対応）..."></textarea>
+                        <textarea id="chat-input" required rows="1" class="w-full bg-white border border-black pl-4 pr-12 py-3 focus:outline-none text-sm text-black placeholder-gray-400 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] resize-none" placeholder="質問を入力してください..."></textarea>
                         <button type="submit" class="absolute right-1 w-9 h-9 bg-black hover:bg-gray-800 text-white flex items-center justify-center transition disabled:opacity-50 disabled:cursor-not-allowed">
                             <i class="fas fa-arrow-right text-xs"></i>
                         </button>
