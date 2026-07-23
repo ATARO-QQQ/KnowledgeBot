@@ -23,3 +23,9 @@ body {
             background-color: #000000;
             color: #FFFFFF;
         }
+        .thread-item.active .delete-thread-btn {
+            color: #A1A1AA;
+        }
+        .thread-item.active .delete-thread-btn:hover {
+            color: #FFFFFF;
+        }
