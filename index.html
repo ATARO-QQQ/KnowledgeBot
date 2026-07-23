@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Knowledge Bot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="style1.css">
+</head>
+<body class="h-screen font-sans text-gray-900 bg-white">
+
+    
+    <div id="app" class="h-full w-full relative">
+        
+        
+        <div id="auth-screen" class="absolute inset-0 z-50 bg-white flex items-center justify-center p-4">
+            <div class="bg-white border-2 border-black p-8 w-96 max-w-full shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                <div class="text-center mb-8 border-b-2 border-black pb-6">
+                    <i class="fas fa-robot text-3xl text-black mb-2"></i>
+                    <h2 class="text-xl font-bold tracking-widest text-black uppercase">Knowledge Bot</h2>
+                    <p class="text-xs text-gray-500 mt-1 uppercase tracking-wider">System Access</p>
+                </div>
+                
+                <form id="auth-form" class="space-y-5">
+                    <div>
+                        <label class="block text-xs font-bold uppercase tracking-wider text-black mb-1">メールアドレス</label>
+                        <input type="email" id="email" required class="w-full px-3 py-2 border border-black focus:outline-none focus:bg-gray-50 text-sm placeholder-gray-400" placeholder="you@example.com">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold uppercase tracking-wider text-black mb-1">パスワード</label>
+                        <input type="password" id="password" required class="w-full px-3 py-2 border border-black focus:outline-none focus:bg-gray-50 text-sm placeholder-gray-400" placeholder="••••••••">
+                    </div>
+                    <div id="auth-error" class="text-xs text-red-600 font-bold border-l-2 border-red-600 pl-2 hidden"></div>
+                    <button type="submit" id="login-btn" class="w-full bg-black hover:bg-gray-800 text-white font-bold py-2.5 px-4 text-sm tracking-wider uppercase transition border border-black">
+                        ログイン
+                    </button>
+                    <button type="button" id="signup-btn" class="w-full bg-white hover:bg-gray-100 text-black font-bold py-2.5 px-4 text-sm tracking-wider uppercase transition border border-black mt-2">
+                        新規登録
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        
+        <div id="main-screen" class="hidden h-full flex flex-col md:flex-row bg-white">
+            
+            
+            <div class="w-full md:w-80 bg-white border-r-2 border-black flex flex-col h-auto md:h-full shrink-0">
+                <div class="p-4 border-b-2 border-black flex justify-between items-center bg-black text-white">
+                    <h1 class="text-sm font-bold tracking-widest uppercase flex items-center gap-2">
+                        <i class="fas fa-brain text-white"></i> AI Knowledge
+                    </h1>
+                    <button id="logout-btn" class="text-gray-300 hover:text-white transition px-2 py-1 text-xs border border-gray-600 hover:border-white uppercase tracking-wider" title="ログアウト">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+
+                <div class="p-5 flex-1 overflow-y-auto space-y-6">
+                    <div>
+                        <h3 class="text-xs font-bold text-black uppercase tracking-widest border-b border-black pb-1 mb-3">テキストデータを追加</h3>
+                        <label class="cursor-pointer bg-white hover:bg-black hover:text-white text-black border border-black flex items-center justify-center gap-2 py-2.5 px-4 transition text-xs font-bold uppercase tracking-wider shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                            <i class="fas fa-upload"></i> ファイルを選択
+                            <input type="file" id="file-upload" accept=".txt,.md,.json,.html" multiple class="hidden">
+                        </label>
+                        <p class="text-[10px] text-gray-500 mt-2 uppercase tracking-tight">対応形式: .txt, .md, .json, .html</p>
+                    </div>
+
+                    <div>
+                        <h3 class="text-xs font-bold text-black uppercase tracking-widest border-b border-black pb-1 mb-3">読み込み済みデータ</h3>
+                        <ul id="document-list" class="space-y-2">
+                            
+                            <li class="text-xs text-gray-400 text-center py-4 border border-dashed border-gray-300" id="no-docs-msg">データがありません</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            
+            <div class="flex-1 flex flex-col h-full bg-white relative">
+                
+                <div class="md:hidden p-4 bg-white border-b-2 border-black flex justify-between items-center">
+                    <h2 class="font-bold text-sm tracking-wider uppercase">Chat</h2>
+                </div>
+
+                
+                <div id="chat-container" class="flex-1 overflow-y-auto p-4 md:p-8 space-y-6">
+                    
+                    <div class="flex items-start gap-3">
+                        <div class="w-8 h-8 bg-black text-white flex items-center justify-center shrink-0 text-xs font-bold">
+                            AI
+                        </div>
+                        <div class="bg-gray-50 border border-black px-4 py-3 max-w-[85%] text-xs md:text-sm text-gray-900 leading-relaxed shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                            <p>こんにちは。サイドバーからテキストデータ（.txt, .md, .json, .html）をアップロードしてください。<br>アップロードされたデータと検索情報を組み合わせ、独自のアルゴリズムで応答します。</p>
+                        </div>
+                    </div>
+                </div>
+
+                
+                <div id="loading-indicator" class="hidden absolute bottom-20 left-1/2 transform -translate-x-1/2 bg-white border border-black px-4 py-2 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] flex items-center gap-2 z-10">
+                    <i class="fas fa-spinner fa-spin text-black text-xs"></i>
+                    <span class="text-xs font-bold tracking-wider uppercase text-black">Processing...</span>
+                </div>
+
+                
+                <div class="p-4 bg-white border-t-2 border-black">
+                    <form id="chat-form" class="max-w-4xl mx-auto relative flex items-center">
+                        <input type="text" id="chat-input" required class="w-full bg-white border border-black pl-4 pr-12 py-3 focus:outline-none text-sm text-black placeholder-gray-400 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]" placeholder="質問を入力してください...">
+                        <button type="submit" class="absolute right-1 w-9 h-9 bg-black hover:bg-gray-800 text-white flex items-center justify-center transition disabled:opacity-50 disabled:cursor-not-allowed">
+                            <i class="fas fa-arrow-right text-xs"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    
+    <script src="script1.js"></script>
+</body>
+</html>
