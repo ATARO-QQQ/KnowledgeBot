@@ -395,35 +395,66 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
             }
 
             
-            let response = "";
-            let foundInfo = false;
-
-            if (topLocal.length > 0) {
-                response += "**【📂 アップロードされた資料からの関連情報】**\n";
-                topLocal.forEach(f => {
-                    let t = f.text;
-                    if(t.length > 100) t = t.substring(0, 100) + '...';
-                    response += `- 「${t}」 (ソース: ${f.source})\n`;
-                });
-                response += "\n";
-                foundInfo = true;
-            }
             
-            if (webFindings.length > 0) {
-                response += "**【🌐 一般知識からの推測 (Web検索)】**\n";
-                webFindings.forEach(f => {
-                    response += `- ${f}\n`;
-                });
-                response += "\n";
-                foundInfo = true;
-            }
-
-            if (!foundInfo) {
+            
+            const smoothSentence = (text) => {
+                let t = text.trim();
                 
-                response = `**💡 AIの推測:**\nお探しの「${extractedKeywords.join(', ')}」に完全に一致するデータは見つかりませんでした。\n\n`;
-                response += `しかし、入力された言葉のニュアンスから推測すると、関連するドキュメントがまだアップロードされていないか、専門用語である可能性があります。関連する別の単語で質問していただくか、該当するテキストファイルを追加してみてください。`;
+                if(t.length > 150) t = t.substring(0, 150) + '...'; 
+                
+                t = t.replace(/である。/g, 'です。').replace(/だ。/g, 'です。')
+                     .replace(/する。/g, 'します。').replace(/いる。/g, 'います。')
+                     .replace(/た。/g, 'ました。').replace(/ない。/g, 'ありません。');
+                
+                if (!t.endsWith('。') && !t.endsWith('...')) t += '。';
+                return t;
+            };
+
+            let response = "";
+
+            if (topLocal.length > 0 || webFindings.length > 0) {
+                const mainKw = extractedKeywords[0] || "ご質問の内容";
+                response += `**「${mainKw}」**についてお答えします。\n\n`;
+
+                
+                if (topLocal.length > 0) {
+                    response += `アップロードされた資料を分析したところ、`;
+                    topLocal.forEach((f, index) => {
+                        const smoothed = smoothSentence(f.text);
+                        if (index === 0) {
+                            response += `**${smoothed}**（資料: ${f.source}より） `;
+                        } else if (index === topLocal.length - 1) {
+                            response += `また、**${smoothed}**（資料: ${f.source}より） `;
+                        } else {
+                            response += `さらに、**${smoothed}**（資料: ${f.source}より） `;
+                        }
+                    });
+                    response += `と記載されていることがわかりました。\n\n`;
+                }
+
+                
+                if (webFindings.length > 0) {
+                    if (topLocal.length > 0) {
+                        response += `この情報に加えて、一般的な知識（Web検索からの推測）として、`;
+                    } else {
+                        response += `お手元の資料には直接的な記載が見つかりませんでしたが、一般的な知識（Webからの推測）として、`;
+                    }
+                    
+                    webFindings.forEach((f, index) => {
+                        const smoothed = smoothSentence(f);
+                        if (index > 0) response += `そして、`;
+                        response += `${smoothed} `;
+                    });
+                    response += `といった背景があるようです。\n\n`;
+                }
+
+                
+                response += `これらの情報を総合しますと、**「${extractedKeywords.join('、')}」**に関する全体像が見えてきます。資料内の具体的な文脈と、一般的な定義を合わせてご活用ください。`;
+                
             } else {
-                response += "**💡 総合分析:**\n**「" + extractedKeywords.join(', ') + "」**に関連して、上記のような情報が推測・抽出されました。資料の文脈と、一般的な定義を見比べてみてください。ドンピシャの単語がなくても、関連性が高いと思われる情報をピックアップしています。";
+                
+                response = `申し訳ありません。AIが推測を試みましたが、**「${extractedKeywords.join('、')}」**に関する情報は、お手元の資料および一般的な辞書情報のどちらからも見つけることができませんでした。\n\n`;
+                response += `関連するテキストデータがまだアップロードされていない可能性があります。言葉の表現を少し変えていただくか、該当しそうなファイルを新たに追加してから再度ご質問ください。`;
             }
 
             
