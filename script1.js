@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, doc, setDoc, query, orderBy, serverTimestamp, onSnapshot, limit } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, doc, setDoc, deleteDoc, query, orderBy, serverTimestamp, onSnapshot, limit, getDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
         
         const firebaseConfig = {
@@ -35,19 +35,18 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
         const chatInput = document.getElementById('chat-input');
         const chatContainer = document.getElementById('chat-container');
         const loadingIndicator = document.getElementById('loading-indicator');
+        const currentChatTitle = document.querySelector('#current-chat-title span');
+        const deleteCurrentChatBtn = document.getElementById('delete-current-chat-btn');
 
         
         chatInput.addEventListener('input', function() {
             this.style.height = 'auto';
-            
             this.style.height = (this.scrollHeight < 150 ? this.scrollHeight : 150) + 'px';
         });
 
         chatInput.addEventListener('keydown', function(e) {
-            
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                
                 if (this.value.trim() !== '') {
                     const submitEvent = new Event('submit', { cancelable: true });
                     chatForm.dispatchEvent(submitEvent);
@@ -57,7 +56,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
 
         
         let currentUser = null;
-        let currentThreadId = null; 
+        let currentThreadId = null;
         let localDocuments = [];
         let threadsUnsubscribe = null;
         let messagesUnsubscribe = null;
@@ -118,19 +117,29 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
 
         function startNewChatThread() {
             currentThreadId = null;
-            
             document.querySelectorAll('#thread-list li').forEach(el => el.classList.remove('active'));
-            
+            currentChatTitle.textContent = "新しいチャット";
             
             chatContainer.innerHTML = `
                 <div class="flex items-start gap-3">
                     <div class="w-8 h-8 bg-black text-white flex items-center justify-center shrink-0 text-xs font-bold">AI</div>
                     <div class="bg-gray-50 border border-black px-4 py-3 max-w-[85%] text-xs md:text-sm text-gray-900 leading-relaxed shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                        <p>新しいチャットを開始しました。テキストデータからの抽出や一般知識の推測でお答えします。</p>
+                        <p>どのようなことについてお調べしますか？<br>アップロードされた資料の内容から、文脈を読み取って自然にお答えします。</p>
                     </div>
                 </div>
             `;
         }
+
+        
+        deleteCurrentChatBtn.addEventListener('click', () => {
+            if (currentThreadId) {
+                if (confirm("このチャット履歴を完全に削除してもよろしいですか？")) {
+                    deleteThread(currentThreadId);
+                }
+            } else {
+                startNewChatThread(); 
+            }
+        });
 
         
         function loadThreads() {
@@ -154,24 +163,58 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
                     const data = doc.data();
                     const li = document.createElement('li');
                     li.id = `thread-${doc.id}`;
-                    li.className = `thread-item text-xs p-2.5 border border-black cursor-pointer truncate font-bold transition shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:bg-black hover:text-white ${doc.id === currentThreadId ? 'active' : 'bg-white text-black'}`;
-                    li.innerHTML = `<i class="fas fa-comment-alt mr-1.5"></i> <span class="truncate">${data.title || '新しいチャット'}</span>`;
+                    li.className = `thread-item text-xs p-2.5 border border-black flex items-center justify-between cursor-pointer font-bold transition shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:bg-black hover:text-white ${doc.id === currentThreadId ? 'active' : 'bg-white text-black'}`;
                     
-                    li.addEventListener('click', () => {
-                        selectThread(doc.id);
+                    const titleSpan = document.createElement('span');
+                    titleSpan.className = 'truncate mr-2 flex-1';
+                    titleSpan.innerHTML = `<i class="fas fa-comment-alt mr-1.5"></i> ${data.title || '新しいチャット'}`;
+                    titleSpan.addEventListener('click', () => selectThread(doc.id));
+
+                    
+                    const delBtn = document.createElement('button');
+                    delBtn.className = 'delete-thread-btn text-gray-400 hover:text-red-600 p-1 shrink-0 transition';
+                    delBtn.title = 'このチャットを削除';
+                    delBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
+                    delBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        deleteThread(doc.id);
                     });
-                    
+
+                    li.appendChild(titleSpan);
+                    li.appendChild(delBtn);
                     threadList.appendChild(li);
                 });
             });
         }
 
         
-        function selectThread(threadId) {
+        async function deleteThread(threadId) {
+            if (!currentUser || !threadId) return;
+            
+            try {
+                
+                const msgsRef = collection(db, "users", currentUser.uid, "threads", threadId, "messages");
+                const msgsSnap = await getDocs(msgsRef);
+                const deletePromises = msgsSnap.docs.map(mDoc => deleteDoc(doc(db, "users", currentUser.uid, "threads", threadId, "messages", mDoc.id)));
+                await Promise.all(deletePromises);
+
+                
+                await deleteDoc(doc(db, "users", currentUser.uid, "threads", threadId));
+
+                
+                if (currentThreadId === threadId) {
+                    startNewChatThread();
+                }
+            } catch (err) {
+                console.error("チャットの削除に失敗しました:", err);
+            }
+        }
+
+        
+        async function selectThread(threadId) {
             if (currentThreadId === threadId) return;
             currentThreadId = threadId;
 
-            
             document.querySelectorAll('#thread-list li').forEach(el => el.classList.remove('active'));
             const activeEl = document.getElementById(`thread-${threadId}`);
             if (activeEl) activeEl.classList.add('active');
@@ -179,6 +222,16 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
             if (messagesUnsubscribe) messagesUnsubscribe();
 
             chatContainer.innerHTML = '';
+
+            
+            try {
+                const threadDoc = await getDoc(doc(db, "users", currentUser.uid, "threads", threadId));
+                if (threadDoc.exists()) {
+                    currentChatTitle.textContent = threadDoc.data().title || '過去のチャット';
+                }
+            } catch (e) {
+                currentChatTitle.textContent = '過去のチャット';
+            }
 
             const q = query(
                 collection(db, "users", currentUser.uid, "threads", threadId, "messages"),
@@ -277,7 +330,6 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
 
             chatInput.value = '';
 
-            
             if (!currentThreadId) {
                 try {
                     const titleStr = message.length > 15 ? message.substring(0, 15) + '...' : message;
@@ -287,19 +339,29 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
                         updatedAt: serverTimestamp()
                     });
                     currentThreadId = threadRef.id;
-                    selectThread(currentThreadId);
+                    currentChatTitle.textContent = titleStr; 
+                    
+                    setTimeout(() => {
+                        document.querySelectorAll('#thread-list li').forEach(el => el.classList.remove('active'));
+                        const newEl = document.getElementById(`thread-${currentThreadId}`);
+                        if(newEl) newEl.classList.add('active');
+                    }, 500);
+
+                    
+                    const q = query(collection(db, "users", currentUser.uid, "threads", currentThreadId, "messages"), orderBy("createdAt", "asc"), limit(50));
+                    messagesUnsubscribe = onSnapshot(q, (snapshot) => {
+                        
+                    });
                 } catch (err) {
                     console.error("スレッド作成エラー", err);
                     return;
                 }
             } else {
-                
                 setDoc(doc(db, "users", currentUser.uid, "threads", currentThreadId), {
                     updatedAt: serverTimestamp()
                 }, { merge: true });
             }
 
-            
             const tempUserId = 'temp-user-' + Date.now();
             appendMessage('user', message, tempUserId);
             
@@ -370,183 +432,179 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
         
         
         
+        
         function calculateSimilarity(text, keyword) {
+            
             if (!keyword || !text) return 0;
             if (keyword.length <= 1) return text.includes(keyword) ? 1 : 0;
-            
             let kwBigrams = new Set();
             for(let i=0; i<keyword.length-1; i++) kwBigrams.add(keyword.substring(i, i+2));
-            
             let textBigrams = new Set();
             for(let i=0; i<text.length-1; i++) textBigrams.add(text.substring(i, i+2));
-            
             if (kwBigrams.size === 0) return 0;
-            
             let matchCount = 0;
-            for(let bg of kwBigrams) {
-                if(textBigrams.has(bg)) matchCount++;
-            }
+            for(let bg of kwBigrams) { if(textBigrams.has(bg)) matchCount++; }
             return matchCount / kwBigrams.size;
+        }
+
+        function extractTargetIndex(queryStr) {
+            
+            const match = queryStr.match(/(?:第|トラック|#)?(\d+)(?:曲目|番目|トラック|話|章|st|nd|rd|th)/i);
+            if (match) return parseInt(match[1], 10);
+
+            const kanjiNums = {'一':1, '二':2, '三':3, '四':4, '五':5, '六':6, '七':7, '八':8, '九':9, '十':10, '十一':11, '十二':12};
+            for (let [k, v] of Object.entries(kanjiNums)) {
+                if (queryStr.includes(`${k}曲目`) || queryStr.includes(`${k}番目`) || queryStr.includes(`第${k}`)) return v;
+            }
+            return null;
         }
 
         
         async function runCustomAlgorithm(queryStr) {
-            
-            const stopWords = ['は','が','の','に','を','で','と','へ','から','より','や','など','です','ます','した','する','ある','いる','これ','それ','あれ','どれ','について','教えて','なに','何','どう','って','という','ください','したい','知りたい','考え','理由','影響','方法', 'について教えてください', 'について知りたい'];
-            
-            
-            let intent = "general";
-            if (queryStr.match(/とは何か|とは|意味|定義/)) intent = "definition";
-            else if (queryStr.match(/なぜ|理由|原因|どうして/)) intent = "reason";
-            else if (queryStr.match(/方法|やり方|手順|どうやって/)) intent = "method";
-            else if (queryStr.match(/違い|比較/)) intent = "compare";
+            const targetIndex = extractTargetIndex(queryStr); 
 
             
-            const querySentences = queryStr.split(/[。.\n！？?!]/).filter(s => s.trim().length > 0);
+            const stopWords = ['教えて','知りたい','なんですか','何ですか','曲目','番目','アルバム','とは','どうして','なぜ','理由'];
+            
+            const regex = /[一-龥ァ-ンヴー]{2,}|[a-zA-Z0-9]+[a-zA-Z0-9ァ-ンヴー一-龥]*|[ぁ-ん]{2,}/g;
+            let extractedKeywords = queryStr.match(regex) || [];
+            
+            
+            extractedKeywords = [...new Set(extractedKeywords.filter(k => 
+                !stopWords.includes(k) && 
+                !k.match(/^[はがのにおでとへからよりやなどですますしたするあるいる]$/) 
+            ))];
+
+            if (extractedKeywords.length === 0) extractedKeywords = [queryStr.replace(/[。、！？\s]/g, '')];
 
             
-            let allKeywords = [];
-            querySentences.forEach(sentence => {
-                const words = sentence.split(/[\s,。、！？?!]+/).filter(w => w.trim().length > 0 && !stopWords.includes(w));
-                words.forEach(word => {
-                    const matches = word.match(/[一-龥ァ-ンヴー]{2,}|[ぁ-ん]{2,}|[a-zA-Z0-9]+/g);
-                    if (matches) allKeywords.push(...matches);
-                });
-            });
+            let bestMatchFound = null;
+            let contextualSentences = [];
+            let docContextName = "";
 
-            
-            let uniqueKeywords = [...new Set(allKeywords)].sort((a, b) => b.length - a.length);
-            if (uniqueKeywords.length === 0) uniqueKeywords = [queryStr.replace(/[。、！？\s]/g, '')];
-            
-            
-            let localFindings = [];
             for (const doc of localDocuments) {
                 if (!doc.content) continue;
-                const sentences = doc.content.split(/[。.\n]/).filter(s => s.trim().length > 5);
                 
-                for (const sentence of sentences) {
+                
+                const blocks = doc.content.split(/\n\s*\n/);
+                
+                let highestBlockScore = 0;
+                let bestBlockLines = [];
+
+                for (const block of blocks) {
                     let score = 0;
-                    for (const kw of uniqueKeywords) {
-                        const sim = calculateSimilarity(sentence, kw);
-                        if (sim >= 0.35) score += sim * 2;
-                        if (sentence.includes(kw)) score += 3.0; 
+                    extractedKeywords.forEach(kw => {
+                        if (block.includes(kw)) score += 3; 
+                    });
+
+                    if (score > highestBlockScore) {
+                        highestBlockScore = score;
+                        bestBlockLines = block.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+                        docContextName = doc.fileName;
                     }
-                    if (score > 1.5) {
-                        localFindings.push({ text: sentence.trim(), score: score, source: doc.fileName });
+                }
+
+                
+                if (highestBlockScore > 0) {
+                    if (targetIndex !== null) {
+                        
+                        const indexPattern = new RegExp(`(?:^|[^0-9])(?:0?${targetIndex}|M0?${targetIndex}|Track\\s*0?${targetIndex})[\\.\\s\\:\\-–\\|\\t]+(.+)`, 'i');
+                        for (let i = 0; i < bestBlockLines.length; i++) {
+                            const match = bestBlockLines[i].match(indexPattern);
+                            if (match && match[1]) {
+                                bestMatchFound = {
+                                    index: targetIndex,
+                                    title: match[1].replace(/^[:\-\s]+/, '').trim(),
+                                    source: docContextName,
+                                    fullLine: bestBlockLines[i]
+                                };
+                                break;
+                            }
+                        }
                     }
+                    
+                    
+                    bestBlockLines.forEach(line => {
+                        const cleanLine = line.replace(/^[・\-\*]\s*/, '');
+                        if (cleanLine.length > 5 && !contextualSentences.includes(cleanLine)) {
+                            contextualSentences.push(cleanLine);
+                        }
+                    });
                 }
             }
-
-            
-            const uniqueLocalFindings = [];
-            const seenTexts = new Set();
-            localFindings.sort((a, b) => b.score - a.score).forEach(item => {
-                if (!seenTexts.has(item.text)) {
-                    seenTexts.add(item.text);
-                    uniqueLocalFindings.push(item);
-                }
-            });
-            const topLocal = uniqueLocalFindings.slice(0, 4);
 
             
             let webFindings = [];
-            const topKeywords = uniqueKeywords.slice(0, 3); 
             
-            const webPromises = topKeywords.map(async (kw) => {
-                try {
-                    const url = `https://ja.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=extracts&exintro&explaintext&titles=${encodeURIComponent(kw)}`;
-                    const res = await fetch(url);
-                    const data = await res.json();
-                    
-                    if (data.query && data.query.pages) {
-                        const pages = data.query.pages;
-                        const pageId = Object.keys(pages)[0];
-                        if (pageId !== "-1" && pages[pageId].extract) {
-                            return pages[pageId].extract.replace(/\n/g, '').split('。').filter(s => s).slice(0, 2).join('。') + '。';
+            if (!bestMatchFound && contextualSentences.length === 0 || queryStr.includes("とは")) {
+                const mainKw = extractedKeywords.sort((a, b) => b.length - a.length)[0];
+                if (mainKw && mainKw.length >= 2) {
+                    try {
+                        const url = `https://ja.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=extracts&exintro&explaintext&titles=${encodeURIComponent(mainKw)}`;
+                        const res = await fetch(url);
+                        const data = await res.json();
+                        if (data.query && data.query.pages) {
+                            const pages = data.query.pages;
+                            const pageId = Object.keys(pages)[0];
+                            if (pageId !== "-1" && pages[pageId].extract) {
+                                const extract = pages[pageId].extract.replace(/\n/g, '');
+                                if (!extract.includes("曖昧さ回避")) {
+                                    webFindings.push(extract.split('。').slice(0, 2).join('。') + '。');
+                                }
+                            }
                         }
-                    }
-                } catch(e) { console.error("Web検索エラー", e); }
-                return null;
-            });
-
-            const webResults = await Promise.all(webPromises);
-            webResults.forEach(res => {
-                if (res && !webFindings.includes(res)) webFindings.push(res);
-            });
-
-            
-            const smoothSentence = (text) => {
-                let t = text.trim();
-                if(t.length > 200) t = t.substring(0, 200) + '...'; 
-                t = t.replace(/である。/g, 'です。').replace(/だ。/g, 'です。')
-                     .replace(/する。/g, 'します。').replace(/いる。/g, 'います。')
-                     .replace(/た。/g, 'ました。').replace(/ない。/g, 'ありません。');
-                if (!t.endsWith('。') && !t.endsWith('...')) t += '。';
-                return t;
-            };
-
-            let response = "";
-
-            if (topLocal.length > 0 || webFindings.length > 0) {
-                const mainTopic = topKeywords.slice(0, 2).join('・') || "ご質問内容";
-                
-                
-                if (intent === "definition") {
-                    response += `**「${mainTopic}」**の意味や定義についてお答えします。\n\n`;
-                } else if (intent === "reason") {
-                    response += `**「${mainTopic}」**に関する理由や背景について分析しました。\n\n`;
-                } else if (intent === "method") {
-                    response += `**「${mainTopic}」**の手順や方法について抽出しました。\n\n`;
-                } else {
-                    if (queryStr.length > 30) {
-                        response += `いただいた長文の質問から**「${mainTopic}」**に関するポイントを抽出して回答いたします。\n\n`;
-                    } else {
-                        response += `**「${mainTopic}」**についてお答えします。\n\n`;
-                    }
+                    } catch(e) {  }
                 }
-
-                
-                if (topLocal.length > 0) {
-                    response += `アップロードされた資料を分析した結果、以下の内容が確認できました：\n\n`;
-                    topLocal.forEach((f, index) => {
-                        const smoothed = smoothSentence(f.text);
-                        response += `- **${smoothed}** （資料: ${f.source}より）\n`;
-                    });
-                    response += `\n`;
-                }
-
-                
-                if (webFindings.length > 0) {
-                    if (topLocal.length > 0) {
-                        response += `さらに、一般的な知識（Webからの推測）を補足しますと、`;
-                    } else {
-                        response += `お手元の資料には直接的な表現が見つかりませんでしたが、一般的な知識（Webからの推測）として、`;
-                    }
-                    
-                    webFindings.forEach((f, index) => {
-                        const smoothed = smoothSentence(f);
-                        if (index > 0) response += `また、`;
-                        response += `${smoothed} `;
-                    });
-                    response += `といった点が挙げられます。\n\n`;
-                }
-
-                
-                response += `**💡 結論:**\n`;
-                if (intent === "reason") {
-                    response += `資料と一般知識から、**「${topKeywords[0] || mainTopic}」**の背景には様々な要因が絡んでいることが推測されます。`;
-                } else {
-                    response += `ご質問の文脈において重点となる要素は**「${topKeywords.join('」「')}」**です。手元資料の記述と上記一般知識を照らし合わせてご参照ください。`;
-                }
-
-            } else {
-                response = `ご質問（${queryStr.length > 20 ? queryStr.substring(0, 20) + '...' : queryStr}）を解析しましたが、一致するテキスト資料および一般的な定義を見つけることができませんでした。\n\n`;
-                response += `**解決のためのヒント:**\n- 質問の言い回しやキーワードを変えて再度お試しください。\n- 関連するキーワードが含まれたテキストデータ（.txt / .md / .json / .html）を追加でアップロードしてください。`;
             }
 
             
-            chatInput.style.height = 'auto';
+            let response = "";
 
-            await new Promise(r => setTimeout(r, 800));
+            
+            if (bestMatchFound) {
+                response = `ご質問いただいた**${bestMatchFound.index}曲目**についてですね。\n\n`;
+                response += `資料（\`${bestMatchFound.source}\`）を確認したところ、該当するのは **「${bestMatchFound.title}」** です。\n\n`;
+                
+                
+                const otherInfo = contextualSentences.filter(s => !s.includes(bestMatchFound.title) && s.length > 10).slice(0, 2);
+                if (otherInfo.length > 0) {
+                    response += `また、同資料内には関連情報として以下の記載も見つかりました：\n`;
+                    otherInfo.forEach(info => {
+                        response += `- ${info}\n`;
+                    });
+                }
+            } 
+            
+            else if (contextualSentences.length > 0) {
+                const topic = extractedKeywords.slice(0, 2).join('・');
+                response = `**「${topic}」** に関して、アップロードされた資料（\`${docContextName}\`）から関連する情報を確認しました。\n\n`;
+                
+                if (targetIndex !== null) {
+                    response += `※明確に「${targetIndex}番目」を示すリストは見つかりませんでしたが、関連する記述は以下の通りです：\n\n`;
+                }
+
+                
+                const uniqueTexts = [...new Set(contextualSentences)].slice(0, 4);
+                uniqueTexts.forEach((text, i) => {
+                    if (i === 0) response += `資料によると、**${text}** とされています。\n`;
+                    else if (i === 1) response += `さらに、**${text}** といった記載もあります。\n`;
+                    else response += `- ${text}\n`;
+                });
+            } 
+            
+            else if (webFindings.length > 0) {
+                response = `お手元の資料には「${extractedKeywords.join(' ')}」に関する記載が見つかりませんでした。\n\n`;
+                response += `一般的な知識としてお調べしたところ、以下の情報が確認できました。\n`;
+                response += `> ${webFindings[0]}\n\n`;
+                response += `※より詳細な情報が必要な場合は、該当する内容が含まれたテキスト資料をアップロードしてください。`;
+            } 
+            
+            else {
+                response = `申し訳ありません。ご提示いただいた資料の中からは、**「${extractedKeywords.join('・')}」**に関する具体的な情報を見つけることができませんでした。\n\n`;
+                response += `該当する情報が記載された資料（テキストファイル）がアップロードされているか確認していただくか、別のキーワードでご質問いただけますでしょうか。`;
+            }
+
+            chatInput.style.height = 'auto';
+            await new Promise(r => setTimeout(r, 600)); 
             return response;
         }
