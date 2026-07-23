@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, query, orderBy, serverTimestamp, onSnapshot, limit } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, doc, setDoc, query, orderBy, serverTimestamp, onSnapshot, limit } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
         
         const firebaseConfig = {
@@ -27,18 +27,40 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
         const loginBtn = document.getElementById('login-btn');
         const signupBtn = document.getElementById('signup-btn');
         const logoutBtn = document.getElementById('logout-btn');
+        const newChatBtn = document.getElementById('new-chat-btn');
+        const threadList = document.getElementById('thread-list');
         const fileUpload = document.getElementById('file-upload');
         const documentList = document.getElementById('document-list');
-        const noDocsMsg = document.getElementById('no-docs-msg');
         const chatForm = document.getElementById('chat-form');
         const chatInput = document.getElementById('chat-input');
         const chatContainer = document.getElementById('chat-container');
         const loadingIndicator = document.getElementById('loading-indicator');
 
         
+        chatInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            
+            this.style.height = (this.scrollHeight < 150 ? this.scrollHeight : 150) + 'px';
+        });
+
+        chatInput.addEventListener('keydown', function(e) {
+            
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                
+                if (this.value.trim() !== '') {
+                    const submitEvent = new Event('submit', { cancelable: true });
+                    chatForm.dispatchEvent(submitEvent);
+                }
+            }
+        });
+
+        
         let currentUser = null;
-        let localDocuments = []; 
-        let chatUnsubscribe = null; 
+        let currentThreadId = null; 
+        let localDocuments = [];
+        let threadsUnsubscribe = null;
+        let messagesUnsubscribe = null;
 
         
         onAuthStateChanged(auth, (user) => {
@@ -47,14 +69,17 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
                 authScreen.classList.add('hidden');
                 mainScreen.classList.remove('hidden');
                 loadDocuments();
-                loadChats();
+                loadThreads();
             } else {
                 currentUser = null;
+                currentThreadId = null;
                 authScreen.classList.remove('hidden');
                 mainScreen.classList.add('hidden');
                 localDocuments = [];
-                documentList.innerHTML = '<li class="text-xs text-gray-400 text-center py-4 border border-dashed border-gray-300" id="no-docs-msg">データがありません</li>';
-                if (chatUnsubscribe) chatUnsubscribe();
+                documentList.innerHTML = '<li class="text-xs text-gray-400 text-center py-4 border border-dashed border-gray-300">データがありません</li>';
+                threadList.innerHTML = '<li class="text-xs text-gray-400 text-center py-2">履歴がありません</li>';
+                if (threadsUnsubscribe) threadsUnsubscribe();
+                if (messagesUnsubscribe) messagesUnsubscribe();
             }
         });
 
@@ -87,6 +112,90 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
         });
 
         
+        newChatBtn.addEventListener('click', () => {
+            startNewChatThread();
+        });
+
+        function startNewChatThread() {
+            currentThreadId = null;
+            
+            document.querySelectorAll('#thread-list li').forEach(el => el.classList.remove('active'));
+            
+            
+            chatContainer.innerHTML = `
+                <div class="flex items-start gap-3">
+                    <div class="w-8 h-8 bg-black text-white flex items-center justify-center shrink-0 text-xs font-bold">AI</div>
+                    <div class="bg-gray-50 border border-black px-4 py-3 max-w-[85%] text-xs md:text-sm text-gray-900 leading-relaxed shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                        <p>新しいチャットを開始しました。テキストデータからの抽出や一般知識の推測でお答えします。</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        
+        function loadThreads() {
+            if (!currentUser) return;
+            if (threadsUnsubscribe) threadsUnsubscribe();
+
+            const q = query(
+                collection(db, "users", currentUser.uid, "threads"),
+                orderBy("updatedAt", "desc"),
+                limit(30)
+            );
+
+            threadsUnsubscribe = onSnapshot(q, (snapshot) => {
+                threadList.innerHTML = '';
+                if (snapshot.empty) {
+                    threadList.innerHTML = '<li class="text-xs text-gray-400 text-center py-2">履歴がありません</li>';
+                    return;
+                }
+
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const li = document.createElement('li');
+                    li.id = `thread-${doc.id}`;
+                    li.className = `thread-item text-xs p-2.5 border border-black cursor-pointer truncate font-bold transition shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:bg-black hover:text-white ${doc.id === currentThreadId ? 'active' : 'bg-white text-black'}`;
+                    li.innerHTML = `<i class="fas fa-comment-alt mr-1.5"></i> <span class="truncate">${data.title || '新しいチャット'}</span>`;
+                    
+                    li.addEventListener('click', () => {
+                        selectThread(doc.id);
+                    });
+                    
+                    threadList.appendChild(li);
+                });
+            });
+        }
+
+        
+        function selectThread(threadId) {
+            if (currentThreadId === threadId) return;
+            currentThreadId = threadId;
+
+            
+            document.querySelectorAll('#thread-list li').forEach(el => el.classList.remove('active'));
+            const activeEl = document.getElementById(`thread-${threadId}`);
+            if (activeEl) activeEl.classList.add('active');
+
+            if (messagesUnsubscribe) messagesUnsubscribe();
+
+            chatContainer.innerHTML = '';
+
+            const q = query(
+                collection(db, "users", currentUser.uid, "threads", threadId, "messages"),
+                orderBy("createdAt", "asc"),
+                limit(50)
+            );
+
+            messagesUnsubscribe = onSnapshot(q, (snapshot) => {
+                chatContainer.innerHTML = '';
+                snapshot.forEach(doc => {
+                    const msg = doc.data();
+                    appendMessage(msg.sender, msg.text, doc.id);
+                });
+            });
+        }
+
+        
         fileUpload.addEventListener('change', async (e) => {
             const files = e.target.files;
             if (!files.length || !currentUser) return;
@@ -98,13 +207,11 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
             for (const file of files) {
                 try {
                     const content = await readFileAsText(file);
-                    
                     let cleanContent = content;
                     if(file.name.endsWith('.html') || file.name.endsWith('.json')) {
                         cleanContent = content.replace(/<[^>]*>?/gm, ' '); 
                     }
 
-                    
                     await addDoc(collection(db, "users", currentUser.uid, "documents"), {
                         fileName: file.name,
                         content: cleanContent,
@@ -112,18 +219,16 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
                         createdAt: serverTimestamp()
                     });
                 } catch (err) {
-                    console.error("ファイルの読み込み/保存に失敗:", err);
+                    console.error("ファイルの保存に失敗:", err);
                     alert(`${file.name}の保存に失敗しました。`);
                 }
             }
 
             uploadBtnLabel.innerHTML = originalHtml;
-            fileUpload.value = ''; 
+            fileUpload.value = '';
         });
 
-        function getExtension(filename) {
-            return filename.split('.').pop();
-        }
+        function getExtension(filename) { return filename.split('.').pop(); }
 
         function readFileAsText(file) {
             return new Promise((resolve, reject) => {
@@ -134,7 +239,6 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
             });
         }
 
-        
         function loadDocuments() {
             if (!currentUser) return;
             const q = query(collection(db, "users", currentUser.uid, "documents"), orderBy("createdAt", "desc"));
@@ -144,7 +248,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
                 documentList.innerHTML = '';
                 
                 if (snapshot.empty) {
-                    documentList.innerHTML = '<li class="text-xs text-gray-400 text-center py-4 border border-dashed border-gray-300" id="no-docs-msg">データがありません</li>';
+                    documentList.innerHTML = '<li class="text-xs text-gray-400 text-center py-4 border border-dashed border-gray-300">データがありません</li>';
                     return;
                 }
 
@@ -162,49 +266,6 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
                     li.innerHTML = `<i class="fas ${icon} text-black shrink-0"></i> <span class="truncate" title="${data.fileName}">${data.fileName}</span>`;
                     documentList.appendChild(li);
                 });
-            }, (error) => {
-                console.error("ドキュメント取得エラー:", error);
-                documentList.innerHTML = `<li class="text-xs text-red-600 border border-red-600 p-2">データ取得エラー。<br>Firestoreのルール設定を確認してください。</li>`;
-            });
-        }
-
-        
-        function loadChats() {
-            if (!currentUser) return;
-            if (chatUnsubscribe) chatUnsubscribe();
-
-            
-            chatContainer.innerHTML = `
-                <div class="flex items-start gap-3">
-                    <div class="w-8 h-8 bg-black text-white flex items-center justify-center shrink-0 text-xs font-bold">AI</div>
-                    <div class="bg-gray-50 border border-black px-4 py-3 max-w-[85%] text-xs md:text-sm text-gray-900 leading-relaxed shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                        <p>こんにちは。サイドバーからテキストデータ（.txt, .md, .json, .html）をアップロードしてください。<br>アップロードされたデータと検索情報を組み合わせ、独自のアルゴリズムで応答します。</p>
-                    </div>
-                </div>
-            `;
-
-            
-            const q = query(
-                collection(db, "users", currentUser.uid, "chats"),
-                orderBy("createdAt", "desc"),
-                limit(50)
-            );
-
-            chatUnsubscribe = onSnapshot(q, (snapshot) => {
-                const messages = [];
-                snapshot.forEach(doc => {
-                    messages.push({ id: doc.id, ...doc.data() });
-                });
-                
-                
-                messages.reverse();
-
-                messages.forEach(msg => {
-                    
-                    if (!document.getElementById(`msg-${msg.id}`)) {
-                        appendMessage(msg.sender, msg.text, msg.id);
-                    }
-                });
             });
         }
 
@@ -212,29 +273,42 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
         chatForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const message = chatInput.value.trim();
-            if (!message) return;
+            if (!message || !currentUser) return;
 
             chatInput.value = '';
+
             
+            if (!currentThreadId) {
+                try {
+                    const titleStr = message.length > 15 ? message.substring(0, 15) + '...' : message;
+                    const threadRef = await addDoc(collection(db, "users", currentUser.uid, "threads"), {
+                        title: titleStr,
+                        createdAt: serverTimestamp(),
+                        updatedAt: serverTimestamp()
+                    });
+                    currentThreadId = threadRef.id;
+                    selectThread(currentThreadId);
+                } catch (err) {
+                    console.error("スレッド作成エラー", err);
+                    return;
+                }
+            } else {
+                
+                setDoc(doc(db, "users", currentUser.uid, "threads", currentThreadId), {
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+            }
+
             
             const tempUserId = 'temp-user-' + Date.now();
             appendMessage('user', message, tempUserId);
             
-            
-            try {
-                const docRef = await addDoc(collection(db, "users", currentUser.uid, "chats"), {
-                    sender: 'user',
-                    text: message,
-                    createdAt: serverTimestamp()
-                });
-                
-                const el = document.getElementById(`msg-${tempUserId}`);
-                if (el) el.id = `msg-${docRef.id}`;
-            } catch (err) {
-                console.error("チャット保存エラー", err);
-            }
+            await addDoc(collection(db, "users", currentUser.uid, "threads", currentThreadId, "messages"), {
+                sender: 'user',
+                text: message,
+                createdAt: serverTimestamp()
+            });
 
-            
             loadingIndicator.classList.remove('hidden');
             const submitBtn = chatForm.querySelector('button');
             submitBtn.disabled = true;
@@ -246,18 +320,15 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
                 const tempBotId = 'temp-bot-' + Date.now();
                 appendMessage('bot', responseText, tempBotId);
 
-                
-                const docRef = await addDoc(collection(db, "users", currentUser.uid, "chats"), {
+                await addDoc(collection(db, "users", currentUser.uid, "threads", currentThreadId, "messages"), {
                     sender: 'bot',
                     text: responseText,
                     createdAt: serverTimestamp()
                 });
-                const el = document.getElementById(`msg-${tempBotId}`);
-                if (el) el.id = `msg-${docRef.id}`;
 
             } catch (error) {
                 console.error("推論エラー:", error);
-                appendMessage('bot', "申し訳ありません。処理中にエラーが発生しました。", 'error-' + Date.now());
+                appendMessage('bot', "申し訳ありません。処理中にエラーが発生しました。");
             } finally {
                 loadingIndicator.classList.add('hidden');
                 submitBtn.disabled = false;
@@ -270,11 +341,10 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
             if (messageId) div.id = `msg-${messageId}`;
             div.className = `flex items-start gap-3 ${sender === 'user' ? 'flex-row-reverse' : ''}`;
             
-            
             let formattedText = text
                 .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                 .replace(/\n- (.*?)(?=\n|$)/g, '<ul><li>$1</li></ul>')
-                .replace(/<\/ul>\n<ul>/g, ''); 
+                .replace(/<\/ul>\n<ul>/g, '');
 
             const avatar = sender === 'user' 
                 ? `<div class="w-8 h-8 bg-white border border-black text-black font-bold flex items-center justify-center shrink-0 text-xs">YOU</div>`
@@ -316,22 +386,37 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
             for(let bg of kwBigrams) {
                 if(textBigrams.has(bg)) matchCount++;
             }
-            
-            return matchCount / kwBigrams.size; 
+            return matchCount / kwBigrams.size;
         }
 
+        
         async function runCustomAlgorithm(queryStr) {
             
-            const stopWords = ['は','が','の','に','を','で','と','へ','から','より','や','など','です','ます','した','する','ある','いる','これ','それ','あれ','どれ','について','教えて','なに','何','どう','って','という'];
-            let keywords = queryStr.split(/[\s,。、！？?!]+/).filter(w => w.trim().length > 0 && !stopWords.includes(w));
+            const stopWords = ['は','が','の','に','を','で','と','へ','から','より','や','など','です','ます','した','する','ある','いる','これ','それ','あれ','どれ','について','教えて','なに','何','どう','って','という','ください','したい','知りたい','考え','理由','影響','方法', 'について教えてください', 'について知りたい'];
             
             
-            let extractedKeywords = [];
-            for (const word of keywords) {
-                const matches = word.match(/[一-龥ァ-ンヴー]{2,}|[ぁ-ん]{2,}|[a-zA-Z0-9]+/g);
-                if (matches) extractedKeywords.push(...matches);
-            }
-            if (extractedKeywords.length === 0) extractedKeywords = [queryStr.replace(/[。、！？]/g, '')];
+            let intent = "general";
+            if (queryStr.match(/とは何か|とは|意味|定義/)) intent = "definition";
+            else if (queryStr.match(/なぜ|理由|原因|どうして/)) intent = "reason";
+            else if (queryStr.match(/方法|やり方|手順|どうやって/)) intent = "method";
+            else if (queryStr.match(/違い|比較/)) intent = "compare";
+
+            
+            const querySentences = queryStr.split(/[。.\n！？?!]/).filter(s => s.trim().length > 0);
+
+            
+            let allKeywords = [];
+            querySentences.forEach(sentence => {
+                const words = sentence.split(/[\s,。、！？?!]+/).filter(w => w.trim().length > 0 && !stopWords.includes(w));
+                words.forEach(word => {
+                    const matches = word.match(/[一-龥ァ-ンヴー]{2,}|[ぁ-ん]{2,}|[a-zA-Z0-9]+/g);
+                    if (matches) allKeywords.push(...matches);
+                });
+            });
+
+            
+            let uniqueKeywords = [...new Set(allKeywords)].sort((a, b) => b.length - a.length);
+            if (uniqueKeywords.length === 0) uniqueKeywords = [queryStr.replace(/[。、！？\s]/g, '')];
             
             
             let localFindings = [];
@@ -341,71 +426,61 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
                 
                 for (const sentence of sentences) {
                     let score = 0;
-                    for (const kw of extractedKeywords) {
-                        
+                    for (const kw of uniqueKeywords) {
                         const sim = calculateSimilarity(sentence, kw);
-                        
-                        
-                        if (sim >= 0.4) {
-                            score += sim * 2; 
-                        }
-                        
-                        if (sentence.includes(kw)) {
-                            score += 2;
-                        }
+                        if (sim >= 0.35) score += sim * 2;
+                        if (sentence.includes(kw)) score += 3.0; 
                     }
-                    
-                    if (score > 0.8) {
+                    if (score > 1.5) {
                         localFindings.push({ text: sentence.trim(), score: score, source: doc.fileName });
                     }
                 }
             }
+
             
-            
-            localFindings.sort((a, b) => b.score - a.score);
-            const topLocal = localFindings.slice(0, 3);
+            const uniqueLocalFindings = [];
+            const seenTexts = new Set();
+            localFindings.sort((a, b) => b.score - a.score).forEach(item => {
+                if (!seenTexts.has(item.text)) {
+                    seenTexts.add(item.text);
+                    uniqueLocalFindings.push(item);
+                }
+            });
+            const topLocal = uniqueLocalFindings.slice(0, 4);
 
             
             let webFindings = [];
-            if (extractedKeywords.length > 0) {
-                
-                const searchKeywords = extractedKeywords.sort((a, b) => b.length - a.length).slice(0, 3);
-                
-                const webPromises = searchKeywords.map(async (kw) => {
-                    try {
-                        const url = `https://ja.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=extracts&exintro&explaintext&titles=${encodeURIComponent(kw)}`;
-                        const res = await fetch(url);
-                        const data = await res.json();
-                        
-                        if (data.query && data.query.pages) {
-                            const pages = data.query.pages;
-                            const pageId = Object.keys(pages)[0];
-                            if (pageId !== "-1" && pages[pageId].extract) {
-                                return pages[pageId].extract.replace(/\n/g, '').split('。').filter(s => s).slice(0, 2).join('。') + '。';
-                            }
+            const topKeywords = uniqueKeywords.slice(0, 3); 
+            
+            const webPromises = topKeywords.map(async (kw) => {
+                try {
+                    const url = `https://ja.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=extracts&exintro&explaintext&titles=${encodeURIComponent(kw)}`;
+                    const res = await fetch(url);
+                    const data = await res.json();
+                    
+                    if (data.query && data.query.pages) {
+                        const pages = data.query.pages;
+                        const pageId = Object.keys(pages)[0];
+                        if (pageId !== "-1" && pages[pageId].extract) {
+                            return pages[pageId].extract.replace(/\n/g, '').split('。').filter(s => s).slice(0, 2).join('。') + '。';
                         }
-                    } catch(e) { console.error("Web検索エラー", e); }
-                    return null;
-                });
+                    }
+                } catch(e) { console.error("Web検索エラー", e); }
+                return null;
+            });
 
-                const results = await Promise.all(webPromises);
-                results.forEach(res => {
-                    if (res && !webFindings.includes(res)) webFindings.push(res);
-                });
-            }
+            const webResults = await Promise.all(webPromises);
+            webResults.forEach(res => {
+                if (res && !webFindings.includes(res)) webFindings.push(res);
+            });
 
-            
-            
             
             const smoothSentence = (text) => {
                 let t = text.trim();
-                
-                if(t.length > 150) t = t.substring(0, 150) + '...'; 
-                
+                if(t.length > 200) t = t.substring(0, 200) + '...'; 
                 t = t.replace(/である。/g, 'です。').replace(/だ。/g, 'です。')
                      .replace(/する。/g, 'します。').replace(/いる。/g, 'います。')
                      .replace(/た。/g, 'ました。').replace(/ない。/g, 'ありません。');
-                
                 if (!t.endsWith('。') && !t.endsWith('...')) t += '。';
                 return t;
             };
@@ -413,51 +488,65 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
             let response = "";
 
             if (topLocal.length > 0 || webFindings.length > 0) {
-                const mainKw = extractedKeywords[0] || "ご質問の内容";
-                response += `**「${mainKw}」**についてお答えします。\n\n`;
+                const mainTopic = topKeywords.slice(0, 2).join('・') || "ご質問内容";
+                
+                
+                if (intent === "definition") {
+                    response += `**「${mainTopic}」**の意味や定義についてお答えします。\n\n`;
+                } else if (intent === "reason") {
+                    response += `**「${mainTopic}」**に関する理由や背景について分析しました。\n\n`;
+                } else if (intent === "method") {
+                    response += `**「${mainTopic}」**の手順や方法について抽出しました。\n\n`;
+                } else {
+                    if (queryStr.length > 30) {
+                        response += `いただいた長文の質問から**「${mainTopic}」**に関するポイントを抽出して回答いたします。\n\n`;
+                    } else {
+                        response += `**「${mainTopic}」**についてお答えします。\n\n`;
+                    }
+                }
 
                 
                 if (topLocal.length > 0) {
-                    response += `アップロードされた資料を分析したところ、`;
+                    response += `アップロードされた資料を分析した結果、以下の内容が確認できました：\n\n`;
                     topLocal.forEach((f, index) => {
                         const smoothed = smoothSentence(f.text);
-                        if (index === 0) {
-                            response += `**${smoothed}**（資料: ${f.source}より） `;
-                        } else if (index === topLocal.length - 1) {
-                            response += `また、**${smoothed}**（資料: ${f.source}より） `;
-                        } else {
-                            response += `さらに、**${smoothed}**（資料: ${f.source}より） `;
-                        }
+                        response += `- **${smoothed}** （資料: ${f.source}より）\n`;
                     });
-                    response += `と記載されていることがわかりました。\n\n`;
+                    response += `\n`;
                 }
 
                 
                 if (webFindings.length > 0) {
                     if (topLocal.length > 0) {
-                        response += `この情報に加えて、一般的な知識（Web検索からの推測）として、`;
+                        response += `さらに、一般的な知識（Webからの推測）を補足しますと、`;
                     } else {
-                        response += `お手元の資料には直接的な記載が見つかりませんでしたが、一般的な知識（Webからの推測）として、`;
+                        response += `お手元の資料には直接的な表現が見つかりませんでしたが、一般的な知識（Webからの推測）として、`;
                     }
                     
                     webFindings.forEach((f, index) => {
                         const smoothed = smoothSentence(f);
-                        if (index > 0) response += `そして、`;
+                        if (index > 0) response += `また、`;
                         response += `${smoothed} `;
                     });
-                    response += `といった背景があるようです。\n\n`;
+                    response += `といった点が挙げられます。\n\n`;
                 }
 
                 
-                response += `これらの情報を総合しますと、**「${extractedKeywords.join('、')}」**に関する全体像が見えてきます。資料内の具体的な文脈と、一般的な定義を合わせてご活用ください。`;
-                
+                response += `**💡 結論:**\n`;
+                if (intent === "reason") {
+                    response += `資料と一般知識から、**「${topKeywords[0] || mainTopic}」**の背景には様々な要因が絡んでいることが推測されます。`;
+                } else {
+                    response += `ご質問の文脈において重点となる要素は**「${topKeywords.join('」「')}」**です。手元資料の記述と上記一般知識を照らし合わせてご参照ください。`;
+                }
+
             } else {
-                
-                response = `申し訳ありません。AIが推測を試みましたが、**「${extractedKeywords.join('、')}」**に関する情報は、お手元の資料および一般的な辞書情報のどちらからも見つけることができませんでした。\n\n`;
-                response += `関連するテキストデータがまだアップロードされていない可能性があります。言葉の表現を少し変えていただくか、該当しそうなファイルを新たに追加してから再度ご質問ください。`;
+                response = `ご質問（${queryStr.length > 20 ? queryStr.substring(0, 20) + '...' : queryStr}）を解析しましたが、一致するテキスト資料および一般的な定義を見つけることができませんでした。\n\n`;
+                response += `**解決のためのヒント:**\n- 質問の言い回しやキーワードを変えて再度お試しください。\n- 関連するキーワードが含まれたテキストデータ（.txt / .md / .json / .html）を追加でアップロードしてください。`;
             }
 
             
+            chatInput.style.height = 'auto';
+
             await new Promise(r => setTimeout(r, 800));
             return response;
         }
