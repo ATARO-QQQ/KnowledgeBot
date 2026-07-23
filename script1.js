@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, query, orderBy, serverTimestamp, onSnapshot } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, getDocs, query, orderBy, serverTimestamp, onSnapshot, limit } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
         
         const firebaseConfig = {
@@ -38,6 +38,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
         
         let currentUser = null;
         let localDocuments = []; 
+        let chatUnsubscribe = null; 
 
         
         onAuthStateChanged(auth, (user) => {
@@ -46,12 +47,14 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
                 authScreen.classList.add('hidden');
                 mainScreen.classList.remove('hidden');
                 loadDocuments();
+                loadChats();
             } else {
                 currentUser = null;
                 authScreen.classList.remove('hidden');
                 mainScreen.classList.add('hidden');
                 localDocuments = [];
                 documentList.innerHTML = '<li class="text-xs text-gray-400 text-center py-4 border border-dashed border-gray-300" id="no-docs-msg">データがありません</li>';
+                if (chatUnsubscribe) chatUnsubscribe();
             }
         });
 
@@ -166,15 +169,71 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
         }
 
         
+        function loadChats() {
+            if (!currentUser) return;
+            if (chatUnsubscribe) chatUnsubscribe();
+
+            
+            chatContainer.innerHTML = `
+                <div class="flex items-start gap-3">
+                    <div class="w-8 h-8 bg-black text-white flex items-center justify-center shrink-0 text-xs font-bold">AI</div>
+                    <div class="bg-gray-50 border border-black px-4 py-3 max-w-[85%] text-xs md:text-sm text-gray-900 leading-relaxed shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                        <p>こんにちは。サイドバーからテキストデータ（.txt, .md, .json, .html）をアップロードしてください。<br>アップロードされたデータと検索情報を組み合わせ、独自のアルゴリズムで応答します。</p>
+                    </div>
+                </div>
+            `;
+
+            
+            const q = query(
+                collection(db, "users", currentUser.uid, "chats"),
+                orderBy("createdAt", "desc"),
+                limit(50)
+            );
+
+            chatUnsubscribe = onSnapshot(q, (snapshot) => {
+                const messages = [];
+                snapshot.forEach(doc => {
+                    messages.push({ id: doc.id, ...doc.data() });
+                });
+                
+                
+                messages.reverse();
+
+                messages.forEach(msg => {
+                    
+                    if (!document.getElementById(`msg-${msg.id}`)) {
+                        appendMessage(msg.sender, msg.text, msg.id);
+                    }
+                });
+            });
+        }
+
+        
         chatForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const message = chatInput.value.trim();
             if (!message) return;
 
-            
-            appendMessage('user', message);
             chatInput.value = '';
             
+            
+            const tempUserId = 'temp-user-' + Date.now();
+            appendMessage('user', message, tempUserId);
+            
+            
+            try {
+                const docRef = await addDoc(collection(db, "users", currentUser.uid, "chats"), {
+                    sender: 'user',
+                    text: message,
+                    createdAt: serverTimestamp()
+                });
+                
+                const el = document.getElementById(`msg-${tempUserId}`);
+                if (el) el.id = `msg-${docRef.id}`;
+            } catch (err) {
+                console.error("チャット保存エラー", err);
+            }
+
             
             loadingIndicator.classList.remove('hidden');
             const submitBtn = chatForm.querySelector('button');
@@ -183,10 +242,22 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
             try {
                 
                 const responseText = await runCustomAlgorithm(message);
-                appendMessage('bot', responseText);
+                
+                const tempBotId = 'temp-bot-' + Date.now();
+                appendMessage('bot', responseText, tempBotId);
+
+                
+                const docRef = await addDoc(collection(db, "users", currentUser.uid, "chats"), {
+                    sender: 'bot',
+                    text: responseText,
+                    createdAt: serverTimestamp()
+                });
+                const el = document.getElementById(`msg-${tempBotId}`);
+                if (el) el.id = `msg-${docRef.id}`;
+
             } catch (error) {
                 console.error("推論エラー:", error);
-                appendMessage('bot', "申し訳ありません。処理中にエラーが発生しました。");
+                appendMessage('bot', "申し訳ありません。処理中にエラーが発生しました。", 'error-' + Date.now());
             } finally {
                 loadingIndicator.classList.add('hidden');
                 submitBtn.disabled = false;
@@ -194,8 +265,9 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
             }
         });
 
-        function appendMessage(sender, text) {
+        function appendMessage(sender, text, messageId = '') {
             const div = document.createElement('div');
+            if (messageId) div.id = `msg-${messageId}`;
             div.className = `flex items-start gap-3 ${sender === 'user' ? 'flex-row-reverse' : ''}`;
             
             
@@ -226,10 +298,31 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
         
         
         
+        
+        
+        function calculateSimilarity(text, keyword) {
+            if (!keyword || !text) return 0;
+            if (keyword.length <= 1) return text.includes(keyword) ? 1 : 0;
+            
+            let kwBigrams = new Set();
+            for(let i=0; i<keyword.length-1; i++) kwBigrams.add(keyword.substring(i, i+2));
+            
+            let textBigrams = new Set();
+            for(let i=0; i<text.length-1; i++) textBigrams.add(text.substring(i, i+2));
+            
+            if (kwBigrams.size === 0) return 0;
+            
+            let matchCount = 0;
+            for(let bg of kwBigrams) {
+                if(textBigrams.has(bg)) matchCount++;
+            }
+            
+            return matchCount / kwBigrams.size; 
+        }
+
         async function runCustomAlgorithm(queryStr) {
             
-            
-            const stopWords = ['は','が','の','に','を','で','と','へ','から','より','や','など','です','ます','した','する','ある','いる','これ','それ','あれ','どれ','について','教えて','なに','何','どう'];
+            const stopWords = ['は','が','の','に','を','で','と','へ','から','より','や','など','です','ます','した','する','ある','いる','これ','それ','あれ','どれ','について','教えて','なに','何','どう','って','という'];
             let keywords = queryStr.split(/[\s,。、！？?!]+/).filter(w => w.trim().length > 0 && !stopWords.includes(w));
             
             
@@ -244,19 +337,25 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
             let localFindings = [];
             for (const doc of localDocuments) {
                 if (!doc.content) continue;
-                
-                const sentences = doc.content.split(/[。.\n]/).filter(s => s.trim().length > 10);
+                const sentences = doc.content.split(/[。.\n]/).filter(s => s.trim().length > 5);
                 
                 for (const sentence of sentences) {
                     let score = 0;
                     for (const kw of extractedKeywords) {
+                        
+                        const sim = calculateSimilarity(sentence, kw);
+                        
+                        
+                        if (sim >= 0.4) {
+                            score += sim * 2; 
+                        }
+                        
                         if (sentence.includes(kw)) {
-                            score += 1;
-                            
-                            if(sentence.indexOf(kw) < 20) score += 0.5;
+                            score += 2;
                         }
                     }
-                    if (score > 0) {
+                    
+                    if (score > 0.8) {
                         localFindings.push({ text: sentence.trim(), score: score, source: doc.fileName });
                     }
                 }
@@ -270,25 +369,29 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
             let webFindings = [];
             if (extractedKeywords.length > 0) {
                 
-                const mainKeyword = extractedKeywords.sort((a, b) => b.length - a.length)[0];
-                try {
-                    
-                    const url = `https://ja.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=extracts&exintro&explaintext&titles=${encodeURIComponent(mainKeyword)}`;
-                    const res = await fetch(url);
-                    const data = await res.json();
-                    
-                    if (data.query && data.query.pages) {
-                        const pages = data.query.pages;
-                        const pageId = Object.keys(pages)[0];
-                        if (pageId !== "-1" && pages[pageId].extract) {
-                            
-                            const extract = pages[pageId].extract.replace(/\n/g, '').split('。').filter(s => s).slice(0, 2).join('。') + '。';
-                            webFindings.push(extract);
+                const searchKeywords = extractedKeywords.sort((a, b) => b.length - a.length).slice(0, 3);
+                
+                const webPromises = searchKeywords.map(async (kw) => {
+                    try {
+                        const url = `https://ja.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=extracts&exintro&explaintext&titles=${encodeURIComponent(kw)}`;
+                        const res = await fetch(url);
+                        const data = await res.json();
+                        
+                        if (data.query && data.query.pages) {
+                            const pages = data.query.pages;
+                            const pageId = Object.keys(pages)[0];
+                            if (pageId !== "-1" && pages[pageId].extract) {
+                                return pages[pageId].extract.replace(/\n/g, '').split('。').filter(s => s).slice(0, 2).join('。') + '。';
+                            }
                         }
-                    }
-                } catch(e) {
-                    console.error("Web検索エラー", e);
-                }
+                    } catch(e) { console.error("Web検索エラー", e); }
+                    return null;
+                });
+
+                const results = await Promise.all(webPromises);
+                results.forEach(res => {
+                    if (res && !webFindings.includes(res)) webFindings.push(res);
+                });
             }
 
             
@@ -296,9 +399,8 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
             let foundInfo = false;
 
             if (topLocal.length > 0) {
-                response += "**【📂 アップロードされた資料からの抽出】**\n";
+                response += "**【📂 アップロードされた資料からの関連情報】**\n";
                 topLocal.forEach(f => {
-                    
                     let t = f.text;
                     if(t.length > 100) t = t.substring(0, 100) + '...';
                     response += `- 「${t}」 (ソース: ${f.source})\n`;
@@ -308,7 +410,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
             }
             
             if (webFindings.length > 0) {
-                response += "**【🌐 インターネット調査 (Wikipedia) 】**\n";
+                response += "**【🌐 一般知識からの推測 (Web検索)】**\n";
                 webFindings.forEach(f => {
                     response += `- ${f}\n`;
                 });
@@ -317,12 +419,14 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/fireba
             }
 
             if (!foundInfo) {
-                response = "申し訳ありません。アップロードされた資料とインターネット検索のいずれからも、該当する情報を見つけることができませんでした。質問のキーワードを変えてみてください。";
+                
+                response = `**💡 AIの推測:**\nお探しの「${extractedKeywords.join(', ')}」に完全に一致するデータは見つかりませんでした。\n\n`;
+                response += `しかし、入力された言葉のニュアンスから推測すると、関連するドキュメントがまだアップロードされていないか、専門用語である可能性があります。関連する別の単語で質問していただくか、該当するテキストファイルを追加してみてください。`;
             } else {
-                response += "**💡 AI分析:**\n抽出された上記の情報に基づくと、**「" + extractedKeywords.join(', ') + "」**に関する文脈が確認されました。資料の情報と一般的な定義を合わせて参照してください。";
+                response += "**💡 総合分析:**\n**「" + extractedKeywords.join(', ') + "」**に関連して、上記のような情報が推測・抽出されました。資料の文脈と、一般的な定義を見比べてみてください。ドンピシャの単語がなくても、関連性が高いと思われる情報をピックアップしています。";
             }
 
             
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, 800));
             return response;
         }
